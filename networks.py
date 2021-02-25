@@ -121,9 +121,15 @@ class ActorNetwork(nn.Module):
 
 # define a simple linear VAE
 class LinearVAE(nn.Module):
-    def __init__(self, features = 32):
+    def __init__(self, features = 32, name='VAE', chkpt_dir='tmp/sac'):
         super(LinearVAE, self).__init__()
- 
+        # saving model
+        self.name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        
+        self.features = features
+
         # encoder
         self.enc1 = nn.Linear(in_features=5, out_features=64)
         self.enc2 = nn.Linear(in_features=64, out_features=features*2)
@@ -131,6 +137,13 @@ class LinearVAE(nn.Module):
         # decoder 
         self.dec1 = nn.Linear(in_features=features, out_features=64)
         self.dec2 = nn.Linear(in_features=64, out_features=5)
+        self.activation = nn.PReLU()
+        
+        # optimizer and device
+        self.optimizer = optim.Adam(self.parameters(), lr=0.0001)
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.to(self.device)
+        
     def reparameterize(self, mu, log_var):
         """
         :param mu: mean from the encoder's latent space
@@ -144,7 +157,7 @@ class LinearVAE(nn.Module):
     def forward(self, x):
         # encoding
         x = F.relu(self.enc1(x))
-        x = self.enc2(x).view(-1, 2, features)
+        x = self.enc2(x).view(-1, 2, self.features)
         # get `mu` and `log_var`
         mu = x[:, 0, :] # the first feature values as mean
         log_var = x[:, 1, :] # the other feature values as variance
@@ -153,5 +166,56 @@ class LinearVAE(nn.Module):
  
         # decoding
         x = F.relu(self.dec1(z))
-        reconstruction = torch.sigmoid(self.dec2(x))
+        reconstruction = self.activation(self.dec2(x))
         return reconstruction, mu, log_var
+    def sample_normal(self, x):
+        # encoding
+        x = F.relu(self.enc1(x))
+        x = self.enc2(x).view(-1, 2, self.features)
+        # get `mu` and `log_var`
+        mu = x[:, 0, :] # the first feature values as mean
+        log_var = x[:, 1, :] # the other feature values as variance
+        # get the latent vector through reparameterization
+        z = self.reparameterize(mu, log_var)
+        sigma = torch.sqrt(log_var.exp())
+        probabilities = Normal(mu, sigma)
+        log_probs = probabilities.log_prob(z)
+        log_probs = log_probs.sum(1, keepdim=True)
+        return z, log_probs
+    def save_checkpoint(self):
+        torch.save(self.state_dict(), self.checkpoint_file)
+    def load_checkpoint(self):
+        self.load_state_dict(torch.load(self.checkpoint_file))
+        
+class ActorNetwork_2(nn.Module):
+    def __init__(self, alpha, input_dims, max_action, fc1_dims=256, fc2_dims=256, n_actions=2, name='actor_det', chkpt_dir='tmp/sac'):
+        super(ActorNetwork_2, self).__init__()
+        self.input_dims = input_dims
+        self.max_action = max_action
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.n_actions = n_actions
+        self.name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+
+        self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.action = nn.Linear(self.fc2_dims, self.n_actions)
+
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+        self.to(self.device)
+    def forward(self, state):
+        out = self.fc1(state)
+        out = F.relu(out)
+        out = self.fc2(out)
+        out = F.relu(out)
+        action = self.action(out)
+
+        return action
+    def save_checkpoint(self):
+        torch.save(self.state_dict(), self.checkpoint_file)
+    def load_checkpoint(self):
+        self.load_state_dict(torch.load(self.checkpoint_file))
