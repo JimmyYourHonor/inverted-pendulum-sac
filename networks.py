@@ -163,11 +163,17 @@ class LinearVAE(nn.Module):
         log_var = x[:, 1, :] # the other feature values as variance
         # get the latent vector through reparameterization
         z = self.reparameterize(mu, log_var)
+
+        # get the log probability of z | x
+        sigma = torch.sqrt(log_var.exp())
+        probabilities = Normal(mu, sigma)
+        log_probs = probabilities.log_prob(z)
+        log_probs = log_probs.sum(1, keepdim=True)
  
         # decoding
         x = F.relu(self.dec1(z))
         reconstruction = self.activation(self.dec2(x))
-        return reconstruction, mu, log_var
+        return reconstruction, mu, log_var, log_probs
     def sample_normal(self, x):
         # encoding
         x = F.relu(self.enc1(x))

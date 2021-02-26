@@ -192,32 +192,34 @@ class Agent_2():
         rewards = torch.tensor(rewards, dtype=torch.float).to(self.actor.device)
         dones = torch.tensor(dones).to(self.actor.device)
         
+        # Train VAE with KL divergence + reconstruction_loss + log_probs
+        reconstruction, mu, logvar, log_probs = self.VAE(states).view(-1)
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        reconstruction_loss = F.mse_loss(reconstruction, states)
+        final_loss = KLD + reconstruction_loss + log_probs.view(-1)
+        self.VAE.optimizer.zero_grad()
+        final_loss.backward(retain_graph=True)
+        self.VAE.optimizer.step()
 
-        states_value = self.value(states).view(-1)
-        new_states_value = self.target_value(new_states).view(-1)
+        latent_states = self.VAE.sample_normal(states)
+        states_value = self.value(latent_states).view(-1)
+        new_latent_states = self.VAE.sample_normal(new_states)
+        new_states_value = self.target_value(new_latent_states).view(-1)
         new_states_value[dones] = 0.0
         
-        action, log_probs = self.actor.sample_normal(states, reparameterize=False)
-        log_probs = log_probs.view(-1)
+        action = self.actor(states)
         q1_new_policy = self.critic_1(states, action)
         q2_new_policy = self.critic_2(states, action)
         critic_value = torch.min(q1_new_policy, q2_new_policy)
         critic_value = critic_value.view(-1)
 
         self.value.optimizer.zero_grad()
-        value_target = critic_value - log_probs
+        value_target = critic_value
         value_loss = 0.5 * F.mse_loss(states_value, value_target)
         value_loss.backward(retain_graph=True)
         self.value.optimizer.step()
 
-        action, log_probs = self.actor.sample_normal(states, reparameterize=True)
-        log_probs = log_probs.view(-1)
-        q1_new_policy = self.critic_1(states, action)
-        q2_new_policy = self.critic_2(states, action)
-        critic_value = torch.min(q1_new_policy, q2_new_policy)
-        critic_value = critic_value.view(-1) 
-
-        actor_loss = log_probs - critic_value
+        actor_loss = - critic_value
         actor_loss = torch.mean(actor_loss)
         self.actor.optimizer.zero_grad()
         actor_loss.backward(retain_graph=True)
