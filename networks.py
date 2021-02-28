@@ -121,7 +121,7 @@ class ActorNetwork(nn.Module):
 
 # define a simple linear VAE
 class LinearVAE(nn.Module):
-    def __init__(self, features = 32, name='VAE', chkpt_dir='tmp/sac'):
+    def __init__(self, features = 10, name='VAE', chkpt_dir='tmp/sac'):
         super(LinearVAE, self).__init__()
         # saving model
         self.name = name
@@ -131,13 +131,14 @@ class LinearVAE(nn.Module):
         self.features = features
 
         # encoder
-        self.enc1 = nn.Linear(in_features=5, out_features=64)
-        self.enc2 = nn.Linear(in_features=64, out_features=features*2)
+        self.enc1 = nn.Linear(in_features=5, out_features=256)
+        self.enc2 = nn.Linear(in_features=256, out_features=features*2)
  
         # decoder 
-        self.dec1 = nn.Linear(in_features=features, out_features=64)
-        self.dec2 = nn.Linear(in_features=64, out_features=5)
-        self.activation = nn.PReLU()
+        self.dec1 = nn.Linear(in_features=features, out_features=256)
+        self.dec2 = nn.Linear(in_features=256, out_features=256)
+        self.dec3 = nn.Linear(in_features=256, out_features=5)
+        
         
         # optimizer and device
         self.optimizer = optim.Adam(self.parameters(), lr=0.0001)
@@ -172,7 +173,8 @@ class LinearVAE(nn.Module):
  
         # decoding
         x = F.relu(self.dec1(z))
-        reconstruction = self.activation(self.dec2(x))
+        x = F.relu(self.dec2(x))
+        reconstruction = self.dec3(x)
         return reconstruction, mu, log_var, log_probs
     def sample_normal(self, x):
         # encoding
@@ -183,11 +185,8 @@ class LinearVAE(nn.Module):
         log_var = x[:, 1, :] # the other feature values as variance
         # get the latent vector through reparameterization
         z = self.reparameterize(mu, log_var)
-        sigma = torch.sqrt(log_var.exp())
-        probabilities = Normal(mu, sigma)
-        log_probs = probabilities.log_prob(z)
-        log_probs = log_probs.sum(1, keepdim=True)
-        return z, log_probs
+        
+        return z
     def save_checkpoint(self):
         torch.save(self.state_dict(), self.checkpoint_file)
     def load_checkpoint(self):

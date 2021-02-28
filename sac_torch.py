@@ -131,12 +131,13 @@ class Agent_2():
         self.memeory = ReplayBuffer(max_size, input_dims, n_actions)
         self.batch_size = batch_size
         self.n_actions = n_actions
+        latent_dims = 10
 
-        self.actor = ActorNetwork_2(alpha, input_dims, env.action_space.high, n_actions=n_actions)
-        self.critic_1 = CriticNetwork(beta, input_dims, n_actions, name='critic_1')
-        self.critic_2 = CriticNetwork(beta, input_dims, n_actions, name='critic_2')
-        self.value = ValueNetwork(beta, input_dims, name='value')
-        self.target_value = ValueNetwork(beta, input_dims, name='target_value')
+        self.actor = ActorNetwork_2(alpha, latent_dims, env.action_space.high, n_actions=n_actions)
+        self.critic_1 = CriticNetwork(beta, latent_dims, n_actions, name='critic_det_1')
+        self.critic_2 = CriticNetwork(beta, latent_dims, n_actions, name='critic__det_2')
+        self.value = ValueNetwork(beta, latent_dims, name='value_det')
+        self.target_value = ValueNetwork(beta, latent_dims, name='target_value_det')
         self.VAE = LinearVAE()
 
         self.scale = reward_scale
@@ -144,7 +145,8 @@ class Agent_2():
     
     def choose_action(self, observation):
         state = torch.Tensor([observation]).to(self.actor.device)
-        actions = self.actor(state)
+        state_latent = self.VAE.sample_normal(state)
+        actions = self.actor(state_latent)
         return actions.cpu().detach().numpy()[0]
 
     def remember(self, state, action, reward, new_state, done):
@@ -193,10 +195,11 @@ class Agent_2():
         dones = torch.tensor(dones).to(self.actor.device)
         
         # Train VAE with KL divergence + reconstruction_loss + log_probs
-        reconstruction, mu, logvar, log_probs = self.VAE(states).view(-1)
+        reconstruction, mu, logvar, log_probs = self.VAE(states)
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         reconstruction_loss = F.mse_loss(reconstruction, states)
         final_loss = KLD + reconstruction_loss + log_probs.view(-1)
+        final_loss = torch.mean(final_loss)
         self.VAE.optimizer.zero_grad()
         final_loss.backward(retain_graph=True)
         self.VAE.optimizer.step()
@@ -207,9 +210,9 @@ class Agent_2():
         new_states_value = self.target_value(new_latent_states).view(-1)
         new_states_value[dones] = 0.0
         
-        action = self.actor(states)
-        q1_new_policy = self.critic_1(states, action)
-        q2_new_policy = self.critic_2(states, action)
+        action = self.actor(latent_states)
+        q1_new_policy = self.critic_1(latent_states, action)
+        q2_new_policy = self.critic_2(latent_states, action)
         critic_value = torch.min(q1_new_policy, q2_new_policy)
         critic_value = critic_value.view(-1)
 
@@ -229,8 +232,8 @@ class Agent_2():
         self.critic_2.optimizer.zero_grad()
 
         q_hat = self.scale*rewards + self.gamma*new_states_value
-        q1_old_policy = self.critic_1(states, actions).view(-1)
-        q2_old_policy = self.critic_2(states, actions).view(-1)
+        q1_old_policy = self.critic_1(latent_states, actions).view(-1)
+        q2_old_policy = self.critic_2(latent_states, actions).view(-1)
         critic1_loss = 0.5 * F.mse_loss(q1_old_policy, q_hat)
         critic2_loss = 0.5 * F.mse_loss(q2_old_policy, q_hat)
         critic_loss = critic1_loss + critic2_loss
