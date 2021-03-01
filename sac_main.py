@@ -8,10 +8,10 @@ if __name__ == '__main__':
     #print(env.action_space.shape[0])
     agent = Agent(input_dims=env.observation_space.shape[0], env=env, 
                 n_actions=env.action_space.shape[0])
-    n_games = 10
+    n_games = 200
     best_score = env.reward_range[0]
     score_history = []
-    load_checkpoints = True
+    load_checkpoints = False
 
     if load_checkpoints:
         agent.load_models()
@@ -27,14 +27,14 @@ if __name__ == '__main__':
             score += reward
             agent.remember(observation, action, reward, observation_, done)
             #if not load_checkpoints:
-            #agent.learn()
+            agent.learn()
             observation = observation_
         score_history.append(score)
         avg_score = np.mean(score_history[-100:])
 
-        if avg_score > best_score:
-            best_score = avg_score
-            #if not load_checkpoints:
-            agent.save_models()
+#         if avg_score > best_score:             
+#           best_score = avg_score
+#             #if not load_checkpoints:
+#             agent.save_models()
         
         print('episode ', i, ' score %.1f ' % score, 'avg score %.1f ' % avg_score)
