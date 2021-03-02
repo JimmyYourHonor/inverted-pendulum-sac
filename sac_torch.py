@@ -358,10 +358,13 @@ class Agent_sm():
         self.critic_2.optimizer.step()
         
         self.update_network_parameters()
+#         value_loss = value_loss.cpu().detach().numpy()[0]
+#         actor_loss = actor_loss.cpu().detach().numpy()[0]
+#         critic_loss = critic_loss.cpu().detach().numpy()[0]
         
         return 0, value_loss, actor_loss, critic_loss
     
-    def learn_sm(self):
+    def learn_sm(self, sm_reg = 1):
         if self.memeory.mem_cntr < self.batch_size:
             return
 
@@ -406,7 +409,7 @@ class Agent_sm():
         critic_value_next = critic_value.view(-1) 
 
 #         actor_loss = log_probs - critic_value
-        actor_loss = - (critic_value + critic_value_next) + F.mse_loss(action,action_next) 
+        actor_loss = - (critic_value + critic_value_next) + sm_reg*F.mse_loss(action,action_next) 
         actor_loss = torch.mean(actor_loss)
         self.actor.optimizer.zero_grad()
         actor_loss.backward(retain_graph=True)
